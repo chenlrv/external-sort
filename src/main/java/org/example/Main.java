@@ -81,7 +81,7 @@ public class Main
                         }
                         catch (Exception exception)
                         {
-                            //todo add logging
+                            logger.error("sortChunk() method failed", exception);
                             return false;
                         }
                     });
@@ -231,7 +231,8 @@ public class Main
 
         } catch (Exception exception)
         {
-            //todo add logging
+            logger.error("mergeChunkFiles() failed");
+            throw exception;
         }
     }
 }
