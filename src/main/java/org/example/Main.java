@@ -41,6 +41,14 @@ public class Main
         sort(inputFileName, outputFileName, Integer.parseInt(maxLinesInMemory));
     }
 
+    /**
+     * Gets input file and sorts it ascending with the limitation of having 'maxLinesInMemory' lines in memory at any given time
+     *
+     * @param inputFileName    the name of the file to be sorted
+     * @param outputFileName   the name of the output file in which the sorted data will be written to
+     * @param maxLinesInMemory the maximum number of lines that can be held in memory at any given time
+     * @throws Exception
+     */
     private static void sort(String inputFileName, String outputFileName, int maxLinesInMemory) throws Exception
     {
         List<String> chunkFiles = chunkify(inputFileName, maxLinesInMemory);
@@ -48,21 +56,21 @@ public class Main
     }
 
     /**
-     * Divides the large file into smaller chunks which are sorted ascending
-     * @param inputFilePath
+     * Divides the large file into smaller chunks which are sorted ascending internally
+     *
+     * @param inputFileName    the name of the file to be sorted
      * @param maxLinesInMemory maximum number of lines that can be held in memory at any given time
-     * @return List of the sorted chunk files
+     * @return List of the chunk files
      * @throws Exception in case chunkify fails
      */
-    private static List<String> chunkify(String inputFilePath, int maxLinesInMemory) throws Exception
+    private static List<String> chunkify(String inputFileName, int maxLinesInMemory) throws Exception
     {
         List<String> chunkFiles = new LinkedList<>();
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(inputFilePath)))
+        try (BufferedReader reader = new BufferedReader(new FileReader(inputFileName)))
         {
             String line;
-            int chunkNumber = 0;
-            int linesNumber = 0;
+            int chunkNumber = 0, linesNumber = 0;
             List<String> lines = new LinkedList<>();
 //            List<Future<Boolean>> results = new LinkedList<>();
 
@@ -86,15 +94,15 @@ public class Main
                         }
                         catch (Exception exception)
                         {
-                            logger.error("sortChunk() method failed", exception);
+                            logger.error("sortChunk() failed", exception);
                             return false;
                         }
                     });*/
 
 //                    results.add(success);
                     lines.clear();
-                    chunkNumber++;
                     linesNumber = 0;
+                    chunkNumber++;
                 }
             }
 
@@ -113,8 +121,13 @@ public class Main
 //            for (Future<Boolean> result : results)
 //            {
 //                if (!result.get())
-//                    throw new Exception("Sort chunk has failed");
+//                    throw new Exception();
 //            }
+        }
+        catch (Exception exception)
+        {
+            logger.error("chunkify() failed");
+            throw exception;
         }
 
         return chunkFiles;
@@ -132,59 +145,71 @@ public class Main
                 writer.newLine();
             }
         }
+        catch (Exception exception)
+        {
+            logger.error("sortChunk() failed");
+            throw exception;
+        }
     }
 
     /**
-     * Recursively merges smaller sorted chunks into bigger smaller chunks until the whole file is sorted
-     * @param chunkFiles the chunk files to be sorted
-     * @param outputFileName the name of the output file in which the sorted data will be written to
+     * Recursively merges smaller sorted chunks into bigger chunks until the whole file is sorted
+     *
+     * @param chunkFiles       the chunk files to be sorted
+     * @param outputFileName   the name of the output file in which the sorted data will be written to
      * @param maxLinesInMemory maximum number of lines that can be held in memory at any given time
      * @throws Exception in case the merge operation fails
      */
     private static void mergeSortedChunks(List<String> chunkFiles, String outputFileName, int maxLinesInMemory, int level) throws Exception
     {
-        int counter = 0;
-        int chunkNumber = 0;
+        int counter = 0, chunkNumber = 0;
 
         List<String> _chunkFiles = new LinkedList<>();
         List<String> mergedChunkFiles = new LinkedList<>();
         Iterator<String> iterator = chunkFiles.iterator();
 
-        if (chunkFiles.size() == 1)
+        if (chunkFiles.size() == 1) //termination point
         {
-            Path source = Paths.get(chunkFiles.get(0));
-            Files.move(source, source.resolveSibling(outputFileName));
+            renameFile(chunkFiles.get(0), outputFileName);
             return;
         }
 
-        while (iterator.hasNext())
+        try
         {
-            String chunkFile = iterator.next();
+            while (iterator.hasNext())
+            {
+                String chunkFile = iterator.next();
 
-            _chunkFiles.add(chunkFile);
-            iterator.remove();
-            counter++;
+                _chunkFiles.add(chunkFile);
+                iterator.remove();
+                counter++;
 
-            if (counter == maxLinesInMemory)
+                if (counter == maxLinesInMemory)
+                {
+                    String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
+                    doMergeSortedChunks(_chunkFiles, mergedFileName);
+                    mergedChunkFiles.add(mergedFileName);
+                    _chunkFiles.clear();
+                    counter = 0;
+                    chunkNumber++;
+                }
+            }
+
+            if (!_chunkFiles.isEmpty())
             {
                 String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
                 doMergeSortedChunks(_chunkFiles, mergedFileName);
                 mergedChunkFiles.add(mergedFileName);
-                _chunkFiles.clear();
-                counter = 0;
-                chunkNumber++;
             }
-        }
 
-        if (!_chunkFiles.isEmpty())
+            if (!mergedChunkFiles.isEmpty())
+                mergeSortedChunks(mergedChunkFiles, outputFileName, maxLinesInMemory, level + 1);
+        }
+        catch (Exception exception)
         {
-            String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
-            doMergeSortedChunks(_chunkFiles, mergedFileName);
-            mergedChunkFiles.add(mergedFileName);
+            logger.error("mergeSortedChunks() failed");
+            throw exception;
         }
-
-        if (!mergedChunkFiles.isEmpty())
-            mergeSortedChunks(mergedChunkFiles, outputFileName, maxLinesInMemory, level + 1);
     }
 
     private static void doMergeSortedChunks(List<String> chunkFiles, String outputFileName) throws Exception
@@ -219,17 +244,28 @@ public class Main
                 }
             }
 
-            for (String tempFile : chunkFiles)
-            {
-                readers.get(tempFile).close();
-                Files.delete(Path.of(tempFile));
-            }
+            deleteFiles(chunkFiles, readers);
 
         }
         catch (Exception exception)
         {
-            logger.error("mergeChunkFiles() failed");
+            logger.error("doMergeSortedChunks() failed");
             throw exception;
+        }
+    }
+
+    private static void renameFile(String oldFileName, String newFileName) throws Exception
+    {
+        Path source = Paths.get(oldFileName);
+        Files.move(source, source.resolveSibling(newFileName));
+    }
+
+    private static void deleteFiles(List<String> chunkFiles, Map<String, BufferedReader> readers) throws Exception
+    {
+        for (String file : chunkFiles)
+        {
+            readers.get(file).close();
+            Files.delete(Path.of(file));
         }
     }
 }
