@@ -1,5 +1,6 @@
 package com.v.sort;
 
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -10,7 +11,6 @@ import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -25,20 +25,29 @@ import java.util.concurrent.Future;
 
 public class ExternalSort
 {
-    private static final int THREAD_POOL_SIZE = 5; // Adjustable based on system and hardware limitations
+    private static final int THREAD_POOL_SIZE = 10; // Adjustable based on system and hardware limitations
     private static final String CHUNKIFY_FILE_NAME_PATTERN = "chunk_%d.csv";
     private static final String MERGE_FILE_NAME_PATTERN = "%d_chunk_%d.csv";
 
     private static final Logger logger = LogManager.getLogger(ExternalSort.class);
-    private static final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+    private static ExecutorService executorService;
 
     public static void main(String[] args) throws Exception
     {
-        String inputFileName = args[0];
-        String outputFileName = args[1];
-        String maxLinesInMemory = args[2];
+        try
+        {
+            executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
-        sort(inputFileName, outputFileName, Integer.parseInt(maxLinesInMemory));
+            String inputFileName = args[0];
+            String outputFileName = args[1];
+            String maxLinesInMemory = args[2];
+
+            sort(inputFileName, outputFileName, Integer.parseInt(maxLinesInMemory));
+        }
+        finally
+        {
+            executorService.shutdown();
+        }
     }
 
     /**
@@ -87,7 +96,7 @@ public class ExternalSort
                     {
                         try
                         {
-                            sortChunk(new ArrayList<>(_lines), chunkFileName);
+                            sortChunk(_lines, chunkFileName);
                             chunkFiles.add(chunkFileName);
                             return true;
                         }
@@ -115,7 +124,7 @@ public class ExternalSort
             for (Future<Boolean> result : results)
             {
                 if (!result.get())
-                    throw new Exception();
+                    throw new Exception("chunkify() failed");
             }
         }
         catch (Exception exception)
@@ -170,6 +179,8 @@ public class ExternalSort
 
         try
         {
+            List<Future<Boolean>> results = new LinkedList<>();
+
             while (iterator.hasNext())
             {
                 String chunkFile = iterator.next();
@@ -180,9 +191,25 @@ public class ExternalSort
 
                 if (counter == maxLinesInMemory)
                 {
+                    List<String> tempFiles = new LinkedList<>(_chunkFiles);
                     String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
-                    doMergeSortedChunks(_chunkFiles, mergedFileName);
-                    mergedChunkFiles.add(mergedFileName);
+                    Future<Boolean> success = executorService.submit(() ->
+                    {
+                        try
+                        {
+                            doMergeSortedChunks(tempFiles, mergedFileName);
+                            mergedChunkFiles.add(mergedFileName);
+                            return true;
+                        }
+                        catch (Exception exception)
+                        {
+                            logger.error("mergeSortedChunks() failed", exception);
+                            return false;
+                        }
+                    });
+
+                    results.add(success);
+
                     _chunkFiles.clear();
                     counter = 0;
                     chunkNumber++;
@@ -194,6 +221,12 @@ public class ExternalSort
                 String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
                 doMergeSortedChunks(_chunkFiles, mergedFileName);
                 mergedChunkFiles.add(mergedFileName);
+            }
+
+            for (Future<Boolean> result : results)
+            {
+                if (!result.get())
+                    throw new Exception("mergeSortedChunks() failed");
             }
 
             if (!mergedChunkFiles.isEmpty())
