@@ -14,7 +14,6 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -168,8 +167,7 @@ public class ExternalSort
         int counter = 0, chunkNumber = 0;
 
         List<String> _chunkFiles = new LinkedList<>();
-        List<String> mergedChunkFiles = new LinkedList<>();
-        Iterator<String> iterator = chunkFiles.iterator();
+        List<String> mergedChunkFiles = Collections.synchronizedList(new LinkedList<>());
 
         if (chunkFiles.size() == 1) //termination point
         {
@@ -181,12 +179,9 @@ public class ExternalSort
         {
             List<Future<Boolean>> results = new LinkedList<>();
 
-            while (iterator.hasNext())
+            for (String chunkFile : chunkFiles)
             {
-                String chunkFile = iterator.next();
-
                 _chunkFiles.add(chunkFile);
-                iterator.remove();
                 counter++;
 
                 if (counter == maxLinesInMemory)
