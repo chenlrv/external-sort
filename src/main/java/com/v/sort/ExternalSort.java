@@ -1,4 +1,4 @@
-package org.example;
+package com.v.sort;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -20,16 +21,15 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-public class Main
+public class ExternalSort
 {
-    private static final int THREAD_POOL_SIZE = 10; // Adjustable based on system and hardware limitations
-    private static final int MAX_TIMEOUT = 60; // minutes
-
+    private static final int THREAD_POOL_SIZE = 5; // Adjustable based on system and hardware limitations
     private static final String CHUNKIFY_FILE_NAME_PATTERN = "chunk_%d.csv";
     private static final String MERGE_FILE_NAME_PATTERN = "%d_chunk_%d.csv";
 
-    private static final Logger logger = LogManager.getLogger(Main.class);
+    private static final Logger logger = LogManager.getLogger(ExternalSort.class);
     private static final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
     public static void main(String[] args) throws Exception
@@ -65,14 +65,14 @@ public class Main
      */
     private static List<String> chunkify(String inputFileName, int maxLinesInMemory) throws Exception
     {
-        List<String> chunkFiles = new LinkedList<>();
+        List<String> chunkFiles = Collections.synchronizedList(new LinkedList<>());
 
         try (BufferedReader reader = new BufferedReader(new FileReader(inputFileName)))
         {
             String line;
             int chunkNumber = 0, linesNumber = 0;
             List<String> lines = new LinkedList<>();
-//            List<Future<Boolean>> results = new LinkedList<>();
+            List<Future<Boolean>> results = new LinkedList<>();
 
             while ((line = reader.readLine()) != null)
             {
@@ -81,14 +81,13 @@ public class Main
 
                 if (linesNumber == maxLinesInMemory)
                 {
+                    List<String> _lines = new LinkedList<>(lines);
                     String chunkFileName = String.format(CHUNKIFY_FILE_NAME_PATTERN, chunkNumber);
-                    sortChunk(new ArrayList<>(lines), chunkFileName);
-                    chunkFiles.add(chunkFileName);
-   /*                 Future<Boolean> success = executorService.submit(() ->
+                    Future<Boolean> success = executorService.submit(() ->
                     {
                         try
                         {
-                            sortChunk(new ArrayList<>(lines), chunkFileName);
+                            sortChunk(new ArrayList<>(_lines), chunkFileName);
                             chunkFiles.add(chunkFileName);
                             return true;
                         }
@@ -97,9 +96,9 @@ public class Main
                             logger.error("sortChunk() failed", exception);
                             return false;
                         }
-                    });*/
+                    });
 
-//                    results.add(success);
+                    results.add(success);
                     lines.clear();
                     linesNumber = 0;
                     chunkNumber++;
@@ -113,16 +112,11 @@ public class Main
                 chunkFiles.add(chunkFileName);
             }
 
-//            boolean terminated = executorService.awaitTermination(MAX_TIMEOUT, TimeUnit.MINUTES);
-//
-//            if (!terminated)
-//                throw new Exception("Chunkify threads did not terminate successfully");
-//
-//            for (Future<Boolean> result : results)
-//            {
-//                if (!result.get())
-//                    throw new Exception();
-//            }
+            for (Future<Boolean> result : results)
+            {
+                if (!result.get())
+                    throw new Exception();
+            }
         }
         catch (Exception exception)
         {

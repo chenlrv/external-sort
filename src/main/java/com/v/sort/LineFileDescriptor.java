@@ -1,4 +1,4 @@
-package org.example;
+package com.v.sort;
 
 public class LineFileDescriptor implements Comparable<LineFileDescriptor>
 {
