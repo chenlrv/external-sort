@@ -164,8 +164,8 @@ public class ExternalSort
     {
         int chunkNumber = 0;
 
-        List<String> _chunkFiles = new LinkedList<>();
         List<String> mergedChunkFiles = Collections.synchronizedList(new LinkedList<>());
+        List<String> _chunkFiles = new LinkedList<>();
 
         if (chunkFiles.size() == 1) //termination point
         {
