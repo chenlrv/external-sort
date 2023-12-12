@@ -50,7 +50,7 @@ public class ExternalSort
     }
 
     /**
-     * Gets input file and sorts it ascending with the limitation of having 'maxLinesInMemory' lines in memory at any given time
+     * Gets input file and sorts it ascending under the constraint of having 'maxLinesInMemory' lines in memory at any given time
      *
      * @param inputFileName    the name of the file to be sorted
      * @param outputFileName   the name of the output file in which the sorted data will be written to
@@ -78,19 +78,18 @@ public class ExternalSort
         try (BufferedReader reader = new BufferedReader(new FileReader(inputFileName)))
         {
             String line;
-            int chunkNumber = 0, linesNumber = 0;
+            int chunkNumber = 0;
             List<String> lines = new LinkedList<>();
             List<Future<Boolean>> results = new LinkedList<>();
 
             while ((line = reader.readLine()) != null)
             {
                 lines.add(line);
-                linesNumber++;
 
-                if (linesNumber == maxLinesInMemory)
+                if (lines.size() == maxLinesInMemory)
                 {
                     List<String> _lines = new LinkedList<>(lines);
-                    String chunkFileName = String.format(CHUNKIFY_FILE_NAME_PATTERN, chunkNumber);
+                    String chunkFileName = String.format(CHUNKIFY_FILE_NAME_PATTERN, chunkNumber++);
                     Future<Boolean> success = executorService.submit(() ->
                     {
                         try
@@ -108,8 +107,6 @@ public class ExternalSort
 
                     results.add(success);
                     lines.clear();
-                    linesNumber = 0;
-                    chunkNumber++;
                 }
             }
 
@@ -160,11 +157,12 @@ public class ExternalSort
      * @param chunkFiles       the chunk files to be sorted
      * @param outputFileName   the name of the output file in which the sorted data will be written to
      * @param maxLinesInMemory maximum number of lines that can be held in memory at any given time
+     * @param level            recursion level argument, used to define the file name
      * @throws Exception in case the merge operation fails
      */
     private static void mergeSortedChunks(List<String> chunkFiles, String outputFileName, int maxLinesInMemory, int level) throws Exception
     {
-        int counter = 0, chunkNumber = 0;
+        int chunkNumber = 0;
 
         List<String> _chunkFiles = new LinkedList<>();
         List<String> mergedChunkFiles = Collections.synchronizedList(new LinkedList<>());
@@ -182,12 +180,11 @@ public class ExternalSort
             for (String chunkFile : chunkFiles)
             {
                 _chunkFiles.add(chunkFile);
-                counter++;
 
-                if (counter == maxLinesInMemory)
+                if (_chunkFiles.size() == maxLinesInMemory)
                 {
                     List<String> tempFiles = new LinkedList<>(_chunkFiles);
-                    String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber);
+                    String mergedFileName = String.format(MERGE_FILE_NAME_PATTERN, level, chunkNumber++);
                     Future<Boolean> success = executorService.submit(() ->
                     {
                         try
@@ -204,10 +201,7 @@ public class ExternalSort
                     });
 
                     results.add(success);
-
                     _chunkFiles.clear();
-                    counter = 0;
-                    chunkNumber++;
                 }
             }
 
@@ -265,9 +259,10 @@ public class ExternalSort
                         minHeap.add(new LineFileDescriptor(line, min.getFileName()));
                 }
             }
-
-            deleteFiles(chunkFiles, readers);
-
+            finally
+            {
+                deleteFiles(chunkFiles, readers);
+            }
         }
         catch (Exception exception)
         {
@@ -282,12 +277,19 @@ public class ExternalSort
         Files.move(source, source.resolveSibling(newFileName));
     }
 
-    private static void deleteFiles(List<String> chunkFiles, Map<String, BufferedReader> readers) throws Exception
+    private static void deleteFiles(List<String> chunkFiles, Map<String, BufferedReader> readers)
     {
         for (String file : chunkFiles)
         {
-            readers.get(file).close();
-            Files.delete(Path.of(file));
+            try
+            {
+                readers.get(file).close();
+                Files.delete(Path.of(file));
+            }
+            catch (Exception exception)
+            {
+                logger.error("Error deleting file {}", file, exception);
+            }
         }
     }
 }
